@@ -1,3 +1,5 @@
+import { optimise as optimisePng } from '@jsquash/oxipng'
+
 export type OutputMode = 'original' | 'webp'
 
 export type CompressionResult = {
@@ -22,6 +24,14 @@ export async function compressImage(file: File, mode: OutputMode): Promise<Compr
   const extension = mode === 'webp' ? 'webp' : file.name.split('.').pop() || 'jpg'
   const outputName = `${file.name.replace(/\.[^/.]+$/, '')}-tiny.${extension}`
 
+  if (mode === 'original' && file.type === 'image/png') {
+    const optimised = await optimisePng(await file.arrayBuffer(), { level: 3 })
+    const optimisedBlob = new Blob([optimised], { type: 'image/png' })
+    const blob = optimisedBlob.size < file.size ? optimisedBlob : file
+    bitmap.close()
+    return { blob, width, height, quality: null, reachedTarget: true, outputName }
+  }
+
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -31,10 +41,6 @@ export async function compressImage(file: File, mode: OutputMode): Promise<Compr
   bitmap.close()
 
   const type = mode === 'webp' ? 'image/webp' : file.type
-  if (type === 'image/png') {
-    return { blob: file, width, height, quality: null, reachedTarget: true, outputName }
-  }
-
   const quality = 0.82
   const encoded = await encode(canvas, type, quality)
   const result = mode === 'original' && file.size <= encoded.size
