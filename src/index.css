@@ -1,0 +1,2 @@
+:root { font-family: 'Manrope', sans-serif; color: #242321; background: #fbfaf7; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; --paper: #fbfaf7; --ink: #242321; --muted: #77736d; --line: #e6e1d9; --coral: #db6f5c; }
+* { box-sizing: border-box; } body { margin: 0; min-width: 320px; } button, input, select { font-family: inherit; }
