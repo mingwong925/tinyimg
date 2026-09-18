@@ -9,6 +9,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     const level = compressionMode === 'size' ? 6 : 3
     const colourStep = compressionMode === 'size' ? 16 : compressionMode === 'quality' ? 4 : 8
     const lossless = await optimisePng(source, { level })
+    self.postMessage({ progress: 35 })
     const bitmap = await createImageBitmap(new Blob([source], { type: 'image/png' }))
     const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
     const context = canvas.getContext('2d')
@@ -22,8 +23,10 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       image.data[index + 2] = Math.round(image.data[index + 2] / colourStep) * colourStep
     }
     context.putImageData(image, 0, 0)
+    self.postMessage({ progress: 65 })
     const encoded = await canvas.convertToBlob({ type: 'image/png' })
     const lossy = await optimisePng(await encoded.arrayBuffer(), { level })
+    self.postMessage({ progress: 90 })
     const candidates = [source, lossless, lossy]
     const smallest = candidates.reduce((current, candidate) => candidate.byteLength < current.byteLength ? candidate : current)
     self.postMessage({ buffer: smallest, width: canvas.width, height: canvas.height }, [smallest])

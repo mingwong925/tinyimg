@@ -3,7 +3,7 @@ import JSZip from 'jszip'
 import { compressImage, formatBytes, type CompressionMode, type CompressionResult, type OutputMode } from './lib/compress'
 import './App.css'
 
-type Job = { id: string; file: File; previewUrl: string; status: 'ready' | 'processing' | 'done' | 'error'; result?: CompressionResult; error?: string }
+type Job = { id: string; file: File; previewUrl: string; progress: number; status: 'ready' | 'processing' | 'done' | 'error'; result?: CompressionResult; error?: string }
 type Language = 'en' | 'zh'
 
 const copy = {
@@ -28,7 +28,7 @@ function App() {
 
   const addFiles = (files: FileList | File[]) => {
     const accepted = Array.from(files).filter((file) => ['image/jpeg', 'image/png', 'image/webp'].includes(file.type))
-    setJobs((current) => [...current, ...accepted.map((file) => ({ id: `${file.name}-${file.lastModified}-${Math.random()}`, file, previewUrl: URL.createObjectURL(file), status: 'ready' as const }))])
+    setJobs((current) => [...current, ...accepted.map((file) => ({ id: `${file.name}-${file.lastModified}-${Math.random()}`, file, previewUrl: URL.createObjectURL(file), progress: 0, status: 'ready' as const }))])
   }
 
   const processJobs = async () => {
@@ -37,10 +37,10 @@ function App() {
     setIsProcessing(true)
     setProgress(0)
     for (const [index, job] of pending.entries()) {
-      setJobs((current) => current.map((item) => item.id === job.id ? { ...item, status: 'processing' } : item))
+      setJobs((current) => current.map((item) => item.id === job.id ? { ...item, status: 'processing', progress: 0 } : item))
       try {
-        const result = await compressImage(job.file, mode, compressionMode)
-        setJobs((current) => current.map((item) => item.id === job.id ? { ...item, status: 'done', result } : item))
+        const result = await compressImage(job.file, mode, compressionMode, (value) => setJobs((current) => current.map((item) => item.id === job.id ? { ...item, progress: value } : item)))
+        setJobs((current) => current.map((item) => item.id === job.id ? { ...item, status: 'done', progress: 100, result } : item))
       } catch (error) {
         setJobs((current) => current.map((item) => item.id === job.id ? { ...item, status: 'error', error: error instanceof Error ? error.message : t.failed } : item))
       }
@@ -77,7 +77,7 @@ function App() {
         <div className={`dropzone ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files) }} onClick={() => inputRef.current?.click()}><input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(event) => event.target.files && addFiles(event.target.files)} /><div className="upload-icon">↑</div><h2>{t.drop}</h2><p>{t.browse}</p><span className="drop-hint">{t.hint}</span></div>
         <aside className="settings"><div className="section-label">{t.mode}</div><div className="mode-list"><button className={compressionMode === 'auto' ? 'active' : ''} type="button" onClick={() => setCompressionMode('auto')}><strong>✦ {t.auto}</strong><span>{t.smart}</span></button><button className={compressionMode === 'quality' ? 'active' : ''} type="button" onClick={() => setCompressionMode('quality')}><strong>◌ {t.quality}</strong><span>{t.qualityNote}</span></button><button className={compressionMode === 'size' ? 'active' : ''} type="button" onClick={() => setCompressionMode('size')}><strong>↓ {t.size}</strong><span>{t.sizeNote}</span></button></div><div className="section-label format-label">{t.format}</div><div className="segmented"><button className={mode === 'original' ? 'active' : ''} type="button" onClick={() => setMode('original')}>{t.original}</button><button className={mode === 'webp' ? 'active' : ''} type="button" onClick={() => setMode('webp')}>{t.webp}</button></div><p className="settings-note">{t.note}</p>{isProcessing && <div className="progress-box"><div><span>{t.progress}</span><strong>{progress}%</strong></div><div className="progress-track"><div className="progress-bar" style={{ width: `${progress}%` }} /></div></div>}<button className="compress-button" type="button" disabled={!jobs.length || isProcessing} onClick={processJobs}>{isProcessing ? `${t.compressing} ${progress}%` : jobs.length ? `${t.compress} ${jobs.length} ${jobs.length === 1 ? t.image : t.images} →` : t.add}</button></aside>
       </section>
-      {jobs.length > 0 && <section className="queue"><div className="queue-head"><div><span className="section-label">{t.queue}</span><strong>{jobs.length} {jobs.length === 1 ? t.image : t.images}</strong></div><button type="button" onClick={clearJobs}>{t.clear}</button></div>{jobs.map((job) => <article className="job" key={job.id}><img className="thumbnail" src={job.previewUrl} alt="" /><div className="file-icon">{job.file.type === 'image/png' ? 'PNG' : job.file.type === 'image/webp' ? 'WEBP' : 'JPG'}</div><div className="job-info"><strong>{job.file.name}</strong><span>{formatBytes(job.file.size)} · {job.status === 'processing' ? t.processing : job.status === 'error' ? job.error : job.result ? `${formatBytes(job.result.blob.size)} · ${job.result.width} × ${job.result.height}` : t.ready}</span></div>{job.result && <div className="saving">−{Math.max(0, Math.round((1 - job.result.blob.size / job.file.size) * 100))}% · {formatBytes(job.result.blob.size)}</div>}{job.result && <button className="download" type="button" onClick={() => download(job)} aria-label={`${t.download} ${job.file.name}`}>↓</button>}{job.status === 'processing' && <div className="spinner" />}</article>)}</section>}
+      {jobs.length > 0 && <section className="queue"><div className="queue-head"><div><span className="section-label">{t.queue}</span><strong>{jobs.length} {jobs.length === 1 ? t.image : t.images}</strong></div><button type="button" onClick={clearJobs}>{t.clear}</button></div>{jobs.map((job) => <article className="job" key={job.id}><img className="thumbnail" src={job.previewUrl} alt="" /><div className="file-icon">{job.file.type === 'image/png' ? 'PNG' : job.file.type === 'image/webp' ? 'WEBP' : 'JPG'}</div><div className="job-info"><strong>{job.file.name}</strong><span>{formatBytes(job.file.size)} · {job.status === 'processing' ? `${t.processing} ${job.progress}%` : job.status === 'error' ? job.error : job.result ? `${formatBytes(job.result.blob.size)} · ${job.result.width} × ${job.result.height}` : t.ready}</span>{job.status === 'processing' && <div className="job-progress"><div className="job-progress-bar" style={{ width: `${job.progress}%` }} /></div>}</div>{job.result && <div className="saving">−{Math.max(0, Math.round((1 - job.result.blob.size / job.file.size) * 100))}% · {formatBytes(job.result.blob.size)}</div>}{job.result && <button className="download" type="button" onClick={() => download(job)} aria-label={`${t.download} ${job.file.name}`}>↓</button>}{job.status === 'processing' && <div className="spinner" />}</article>)}</section>}
       {completed.length > 0 && <section className="summary"><div><span>{t.saved}</span><strong>{formatBytes(Math.max(0, totalSaved))}</strong></div><div><span>{t.completed}</span><strong>{completed.length} / {jobs.length}</strong></div><button className="zip-button" type="button" onClick={downloadZip}>{t.zip} <span>↓</span></button></section>}
       <footer><span>tinyimg <b>·</b> {t.footer}</span><span>{t.localFooter}</span></footer>
     </main>

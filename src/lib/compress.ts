@@ -16,10 +16,12 @@ function encode(canvas: HTMLCanvasElement, type: string, quality?: number) {
   })
 }
 
-function compressPngInWorker(file: File, compressionMode: CompressionMode) {
+function compressPngInWorker(file: File, compressionMode: CompressionMode, onProgress?: (progress: number) => void) {
   return new Promise<{ blob: Blob; width: number; height: number }>((resolve, reject) => {
     const worker = new Worker(new URL('./png-worker.ts', import.meta.url), { type: 'module' })
-    worker.onmessage = (event: MessageEvent<{ buffer?: ArrayBuffer; width?: number; height?: number; error?: string }>) => {
+    worker.onmessage = (event: MessageEvent<{ buffer?: ArrayBuffer; width?: number; height?: number; error?: string; progress?: number }>) => {
+      if (event.data.progress) onProgress?.(event.data.progress)
+      if (event.data.progress && !event.data.buffer) return
       worker.terminate()
       if (event.data.error || !event.data.buffer || !event.data.width || !event.data.height) {
         reject(new Error(event.data.error || 'PNG compression failed.'))
@@ -32,10 +34,12 @@ function compressPngInWorker(file: File, compressionMode: CompressionMode) {
   })
 }
 
-export async function compressImage(file: File, mode: OutputMode, compressionMode: CompressionMode): Promise<CompressionResult> {
+export async function compressImage(file: File, mode: OutputMode, compressionMode: CompressionMode, onProgress?: (progress: number) => void): Promise<CompressionResult> {
+  onProgress?.(5)
   if (mode === 'original' && file.type === 'image/png') {
-    const result = await compressPngInWorker(file, compressionMode)
+    const result = await compressPngInWorker(file, compressionMode, onProgress)
     const blob = result.blob.size < file.size ? result.blob : file
+    onProgress?.(100)
     return { blob, width: result.width, height: result.height, quality: null, reachedTarget: true, outputName: `${file.name.replace(/\.[^/.]+$/, '')}-tiny.png` }
   }
 
@@ -52,13 +56,16 @@ export async function compressImage(file: File, mode: OutputMode, compressionMod
   if (!context) throw new Error('Canvas is not available in this browser.')
   context.drawImage(bitmap, 0, 0)
   bitmap.close()
+  onProgress?.(45)
 
   const type = mode === 'webp' ? 'image/webp' : file.type
   const quality = compressionMode === 'size' ? 0.62 : compressionMode === 'quality' ? 0.92 : 0.82
   const encoded = await encode(canvas, type, quality)
+  onProgress?.(90)
   const result = mode === 'original' && file.size <= encoded.size
     ? { blob: file, quality: null }
     : { blob: encoded, quality }
+  onProgress?.(100)
   return { blob: result.blob, width, height, quality: result.quality, reachedTarget: true, outputName }
 }
 
