@@ -62,7 +62,7 @@ export async function compressImage(file: File, mode: OutputMode, compressionMod
   onProgress?.(45)
 
   const type = mode === 'webp' ? 'image/webp' : isJpeg ? 'image/jpeg' : isPng ? 'image/png' : file.type
-  const quality = compressionMode === 'size' ? 0.62 : compressionMode === 'quality' ? 0.92 : 0.82
+  const quality = compressionMode === 'size' ? 0.62 : compressionMode === 'quality' ? 0.92 : 0.72
   const encoded = await encode(canvas, type, quality)
   onProgress?.(90)
   const result = mode === 'original' && file.size <= encoded.size
