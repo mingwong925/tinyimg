@@ -1,5 +1,3 @@
-import { optimise as optimisePng } from '@jsquash/oxipng'
-
 export type OutputMode = 'original' | 'webp'
 export type CompressionMode = 'auto' | 'quality' | 'size'
 
@@ -18,22 +16,29 @@ function encode(canvas: HTMLCanvasElement, type: string, quality?: number) {
   })
 }
 
-async function optimiseLossyPng(canvas: HTMLCanvasElement, colourStep: number, level: number) {
-  const context = canvas.getContext('2d')
-  if (!context) return null
-  const image = context.getImageData(0, 0, canvas.width, canvas.height)
-  for (let index = 0; index < image.data.length; index += 4) {
-    image.data[index] = Math.round(image.data[index] / colourStep) * colourStep
-    image.data[index + 1] = Math.round(image.data[index + 1] / colourStep) * colourStep
-    image.data[index + 2] = Math.round(image.data[index + 2] / colourStep) * colourStep
-  }
-  context.putImageData(image, 0, 0)
-  const encoded = await encode(canvas, 'image/png')
-  const optimised = await optimisePng(await encoded.arrayBuffer(), { level })
-  return new Blob([optimised], { type: 'image/png' })
+function compressPngInWorker(file: File, compressionMode: CompressionMode) {
+  return new Promise<{ blob: Blob; width: number; height: number }>((resolve, reject) => {
+    const worker = new Worker(new URL('./png-worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (event: MessageEvent<{ buffer?: ArrayBuffer; width?: number; height?: number; error?: string }>) => {
+      worker.terminate()
+      if (event.data.error || !event.data.buffer || !event.data.width || !event.data.height) {
+        reject(new Error(event.data.error || 'PNG compression failed.'))
+        return
+      }
+      resolve({ blob: new Blob([event.data.buffer], { type: 'image/png' }), width: event.data.width, height: event.data.height })
+    }
+    worker.onerror = () => { worker.terminate(); reject(new Error('PNG worker failed.')) }
+    file.arrayBuffer().then((source) => worker.postMessage({ source, compressionMode }, [source])).catch(() => reject(new Error('Could not read PNG.')))
+  })
 }
 
 export async function compressImage(file: File, mode: OutputMode, compressionMode: CompressionMode): Promise<CompressionResult> {
+  if (mode === 'original' && file.type === 'image/png') {
+    const result = await compressPngInWorker(file, compressionMode)
+    const blob = result.blob.size < file.size ? result.blob : file
+    return { blob, width: result.width, height: result.height, quality: null, reachedTarget: true, outputName: `${file.name.replace(/\.[^/.]+$/, '')}-tiny.png` }
+  }
+
   const bitmap = await createImageBitmap(file)
   const width = bitmap.width
   const height = bitmap.height
@@ -49,16 +54,6 @@ export async function compressImage(file: File, mode: OutputMode, compressionMod
   bitmap.close()
 
   const type = mode === 'webp' ? 'image/webp' : file.type
-  if (mode === 'original' && file.type === 'image/png') {
-    const level = compressionMode === 'size' ? 6 : 3
-    const colourStep = compressionMode === 'size' ? 16 : compressionMode === 'quality' ? 4 : 8
-    const lossless = new Blob([await optimisePng(await file.arrayBuffer(), { level })], { type: 'image/png' })
-    const lossy = await optimiseLossyPng(canvas, colourStep, level)
-    const candidates = [file, lossless, ...(lossy ? [lossy] : [])]
-    const blob = candidates.reduce((smallest, candidate) => candidate.size < smallest.size ? candidate : smallest)
-    return { blob, width, height, quality: null, reachedTarget: true, outputName }
-  }
-
   const quality = compressionMode === 'size' ? 0.62 : compressionMode === 'quality' ? 0.92 : 0.82
   const encoded = await encode(canvas, type, quality)
   const result = mode === 'original' && file.size <= encoded.size
