@@ -36,7 +36,9 @@ function compressPngInWorker(file: File, compressionMode: CompressionMode, onPro
 
 export async function compressImage(file: File, mode: OutputMode, compressionMode: CompressionMode, onProgress?: (progress: number) => void): Promise<CompressionResult> {
   onProgress?.(5)
-  if (mode === 'original' && file.type === 'image/png') {
+  const fileExtension = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+  const isPng = file.type === 'image/png' || fileExtension === 'png'
+  if (mode === 'original' && isPng) {
     const result = await compressPngInWorker(file, compressionMode, onProgress)
     const blob = result.blob.size < file.size ? result.blob : file
     onProgress?.(100)
@@ -46,7 +48,8 @@ export async function compressImage(file: File, mode: OutputMode, compressionMod
   const bitmap = await createImageBitmap(file)
   const width = bitmap.width
   const height = bitmap.height
-  const extension = mode === 'webp' ? 'webp' : file.name.split('.').pop() || 'jpg'
+  const isJpeg = file.type === 'image/jpeg' || file.type === 'image/jpg' || fileExtension === 'jpg' || fileExtension === 'jpeg'
+  const extension = mode === 'webp' ? 'webp' : isJpeg ? 'jpg' : fileExtension
   const outputName = `${file.name.replace(/\.[^/.]+$/, '')}-tiny.${extension}`
 
   const canvas = document.createElement('canvas')
@@ -58,7 +61,7 @@ export async function compressImage(file: File, mode: OutputMode, compressionMod
   bitmap.close()
   onProgress?.(45)
 
-  const type = mode === 'webp' ? 'image/webp' : file.type
+  const type = mode === 'webp' ? 'image/webp' : isJpeg ? 'image/jpeg' : isPng ? 'image/png' : file.type
   const quality = compressionMode === 'size' ? 0.62 : compressionMode === 'quality' ? 0.92 : 0.82
   const encoded = await encode(canvas, type, quality)
   onProgress?.(90)
